@@ -943,30 +943,29 @@ if page == "Decision Advisor":
         
         rel_corrs = result['relevant_correlations']
         if rel_corrs:
-            linkage_rows = ""
+            st.markdown(f"""
+            <div class="systemic-box" dir="{DIR}" style="text-align: {TEXT_ALIGN};">
+                <h4>{t('systemic_link')}</h4>
+                <p class="desc">{t('systemic_desc')}</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
             for c in rel_corrs[:5]:
                 interp = interpret_correlation(c['correlation'], c['indicator_1'], c['indicator_2'], lang)
                 strength_label = c['strength'].upper()
                 if lang == 'ar':
                     strength_label = {'STRONG': 'قوي', 'MODERATE': 'متوسط', 'WEAK': 'ضعيف'}.get(strength_label, strength_label)
-                
                 color = GREEN if c['correlation'] > 0 else RED
-                linkage_rows += f"""
-                <div class="systemic-row">
-                    <div class="systemic-pair">{c['indicator_1']} ↔ {c['indicator_2']}</div>
-                    <div class="systemic-corr" style="color: {color} !important;">r = {c['correlation']:+.2f}</div>
-                    <div class="systemic-tag">{strength_label}</div>
-                    <div class="systemic-interp">{interp}</div>
+                
+                st.markdown(f"""
+                <div style="background: {CREAM_CARD}; border: 1.5px solid {CREAM_BORDER}; border-left: 4px solid {color}; padding: 1rem 1.3rem; margin: 0.5rem 0; border-radius: 0 6px 6px 0;" dir="{DIR}">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                        <strong style="color: {INK_DEEP} !important; font-size: 0.95rem;">{c['indicator_1']} ↔ {c['indicator_2']}</strong>
+                        <span style="color: {color} !important; font-weight: 800; font-size: 1rem;">r = {c['correlation']:+.2f} · {strength_label}</span>
+                    </div>
+                    <p style="margin: 0.5rem 0 0 0; color: {TEXT_BODY} !important; font-size: 0.85rem; line-height: 1.5;">{interp}</p>
                 </div>
-                """
-            
-            st.markdown(f"""
-            <div class="systemic-box" dir="{DIR}" style="text-align: {TEXT_ALIGN};">
-                <h4>{t('systemic_link')}</h4>
-                <p class="desc">{t('systemic_desc')}</p>
-                {linkage_rows}
-            </div>
-            """, unsafe_allow_html=True)
+                """, unsafe_allow_html=True)
         
         forecast = result['forecast']
         if forecast:
@@ -1024,10 +1023,20 @@ if page == "Decision Advisor":
                 trend = "rise" if change > 0.5 else "decline" if change < -0.5 else "remain stable"
                 fc_exp = f"The model projects GDP growth will {trend} to an average of {fc_avg:.2f}% over the next 5 years, compared to a historical average of {hist_avg:.2f}%. The wide confidence interval ({forecast['ci_lower'][0]:.1f} to {forecast['ci_upper'][0]:.1f}) reflects uncertainty from limited training data."
             
+            # Sanity check on forecast
+            extreme_forecast = abs(fc_avg) > 10 or abs(forecast['ci_upper'][0]) > 30 or abs(forecast['ci_lower'][0]) > 30
+            warning_text = ""
+            if extreme_forecast:
+                if lang == 'ar':
+                    warning_text = "<p style='color: #8B1F1F !important; font-weight: 600; font-size: 0.85rem; margin-top: 0.7rem;'>⚠️ تحذير: التنبؤ يُظهر قيماً متطرفة بسبب محدودية البيانات (10 سنوات فقط) وكسر كوفيد-19 الهيكلي في 2020. يُنصح بمعاملة هذه الأرقام كاستكشافية فقط.</p>"
+                else:
+                    warning_text = "<p style='color: #8B1F1F !important; font-weight: 600; font-size: 0.85rem; margin-top: 0.7rem;'>⚠️ Caution: Forecast shows extreme values due to limited data (10 years only) and the 2020 COVID structural break. Treat these numbers as exploratory only.</p>"
+            
             st.markdown(f"""
             <div class="insight-panel" dir="{DIR}" style="text-align: {TEXT_ALIGN};">
                 <h4>{t('forecast_explanation')}</h4>
                 <p>{fc_exp}</p>
+                {warning_text}
             </div>
             """, unsafe_allow_html=True)
         
@@ -1091,7 +1100,10 @@ elif page == "Intelligence Workbench":
         else:
             st.markdown('<p class="section-desc">Browse and analyze individual indicators in detail.</p>', unsafe_allow_html=True)
         
-        indicator_options = {f"{row['code']} — {row['name_ar']}": row['code'] 
+        name_field = 'name_ar' if lang == 'ar' else 'name_en'
+        if name_field not in indicators.columns:
+            name_field = 'name_ar'  # fallback
+        indicator_options = {f"{row['code']} — {row[name_field]}": row['code'] 
                              for _, row in indicators.iterrows()}
         selected = st.selectbox(t('select_indicator'), list(indicator_options.keys()), key="ind_select")
         selected_code = indicator_options[selected]
@@ -1134,7 +1146,7 @@ elif page == "Intelligence Workbench":
         
         econ_options = ['ECO_GDP', 'ECO_INFLAT', 'ECO_OIL_RENT']
         forecast_target = st.selectbox(t('target_ind'), econ_options,
-            format_func=lambda x: f"{x} — {indicators[indicators['code']==x].iloc[0]['name_ar']}",
+            format_func=lambda x: f"{x} — {indicators[indicators['code']==x].iloc[0][name_field if 'name_field' in dir() else 'name_ar']}",
             key="forecast_target")
         n_forecast = st.slider(t('forecast_horizon'), 1, 5, 3, key="forecast_horizon")
         
@@ -1207,7 +1219,8 @@ elif page == "Intelligence Workbench":
         corr_matrix = corr_data['matrix']
         
         all_codes = list(indicators['code'].values)
-        ind_labels = {row['code']: f"{row['code']} — {row['name_ar']}" for _, row in indicators.iterrows()}
+        name_f = 'name_ar' if lang == 'ar' else ('name_en' if 'name_en' in indicators.columns else 'name_ar')
+        ind_labels = {row['code']: f"{row['code']} — {row[name_f]}" for _, row in indicators.iterrows()}
         
         col1, col2 = st.columns(2)
         with col1:
@@ -1450,7 +1463,7 @@ st.markdown(f"""
 <div class="footer-block">
     <p style="margin: 0; letter-spacing: 1px;"><strong>{t('tagline')}</strong> · V1.0</p>
     <p style="margin: 0.5rem 0; font-size: 0.72rem;">
-        Linda Waleed ALSHAITAN · Data: World Bank · IMF · EIA
+        Linda Waleed Alshaitan · Data: World Bank · IMF · EIA
     </p>
 </div>
 """, unsafe_allow_html=True)
